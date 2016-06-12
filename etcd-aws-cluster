@@ -97,11 +97,9 @@ echo "etcd_good_member_url=$etcd_good_member_url"
 echo "etcd_existing_peer_urls=$etcd_existing_peer_urls"
 echo "etcd_existing_peer_names=$etcd_existing_peer_names"
 
-# if I am not listed as a member of the cluster assume that this is a existing cluster
-# this will also be the case for a proxy situation
-if [[ $etcd_existing_peer_urls && $etcd_existing_peer_names != *"$ec2_instance_id"* ]]; then
-    echo "joining existing cluster"
 
+# If a cluster exists, clean it up from bad members
+if [[ $etcd_good_member_url ]]; then
     # eject bad members from cluster
     peer_regexp=$(echo "$etcd_peer_urls" | sed 's/^.*https\{0,1\}:\/\/\([0-9.]*\):[0-9]*.*$/contains(\\"\/\/\1:\\")/' | xargs | sed 's/  */ or /g')
     if [[ ! $peer_regexp ]]; then
@@ -129,7 +127,17 @@ if [[ $etcd_existing_peer_urls && $etcd_existing_peer_names != *"$ec2_instance_i
                 echo "$pkg: removed bad peer: $bad_peer, return code $status."
             fi
         done
+    else
+        echo "$pkg: No bad peers found!"
     fi
+else
+    echo "$pkg: No existing etcd Cluster found - nothing to cleanup!"
+fi
+
+# if a cluster exists and I am not listed as a member attempt to join
+# this will also be the case for a proxy situation
+if [[ $etcd_existing_peer_urls && $etcd_good_member_url && $etcd_existing_peer_names != *"$ec2_instance_id"* ]]; then
+    echo "joining existing cluster"
 
     # If we're not a proxy we add ourselves as a member to the cluster
     if [[ ! $PROXY_ASG ]]; then
@@ -171,8 +179,8 @@ ETCD_INITIAL_CLUSTER="$etcd_initial_cluster"
 ETCD_PROXY=$etcd_proxy
 EOF
 
-# otherwise I was already listed as a member so assume that this is a new cluster
-else
+# otherwise If there was no good etcd member to join, create a new cluster
+elif [[ ! $etcd_existing_peer_urls && ! $etcd_good_member_url ]]; then
     # create a new cluster
     echo "creating new cluster"
 
